@@ -789,59 +789,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Simulating current client session role toggler - CRITICAL DEMORAL COMPONENT */}
-      <section id="role-simulation-banner" className="bg-slate-100/80 border-b border-slate-200 py-3 backdrop-blur-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-left">
-            <div className="w-2 h-2 rounded-full bg-blue-600 animate-ping"></div>
-            <div>
-              <span className="text-xs font-bold text-slate-900 font-heading">
-                {lang === 'th' ? 'จำลองบทบาทผู้ใช้งาน' : 'User Role Simulator'} : 
-              </span>
-              <span className="text-xs text-slate-500 ml-1">
-                {lang === 'th' 
-                  ? 'คลิกสลับบทบาทด้านขวา เพื่อทดสอบสิทธิ์การเข้าถึงข้อมูลระบบกองกลางแบบเรียลไทม์' 
-                  : 'Instantly toggle roles to test student, staff, and administrator views with simulated states.'
-                }
-              </span>
-            </div>
-          </div>
 
-          {/* Role Switching Interactive Pills */}
-          <div className="flex bg-slate-200 rounded-xl p-1 gap-1 border border-slate-300/40">
-            <button
-              onClick={() => handleRoleChange('student')}
-              className={`px-3 py-1 text-xs rounded-lg font-semibold transition-all cursor-pointer ${
-                role === 'student' 
-                  ? 'bg-white text-blue-700 shadow-sm font-bold' 
-                  : 'text-slate-600 hover:bg-slate-300/60'
-              }`}
-            >
-              🎓 {t('student')}
-            </button>
-            <button
-              onClick={() => handleRoleChange('staff')}
-              className={`px-3 py-1 text-xs rounded-lg font-semibold transition-all cursor-pointer ${
-                role === 'staff' 
-                  ? 'bg-blue-600 text-white shadow-sm font-bold' 
-                  : 'text-slate-600 hover:bg-slate-300/60'
-              }`}
-            >
-              🏫 {t('staff')}
-            </button>
-            <button
-              onClick={() => handleRoleChange('admin')}
-              className={`px-3 py-1 text-xs rounded-lg font-semibold transition-all cursor-pointer ${
-                role === 'admin' 
-                  ? 'bg-slate-900 text-white shadow-sm font-bold' 
-                  : 'text-slate-600 hover:bg-slate-300/60'
-              }`}
-            >
-              ⚙️ {t('admin')}
-            </button>
-          </div>
-        </div>
-      </section>
 
       {/* Main Workspace Frame */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col lg:flex-row gap-8">
