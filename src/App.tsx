@@ -53,6 +53,14 @@ const PROFILE_ADMIN = {
   phone: '086-444-2211'
 };
 
+const getTodayDateString = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export default function App() {
   // --- States ---
   const [lang, setLang] = useState<'th' | 'en'>(() => {
@@ -128,6 +136,10 @@ export default function App() {
   const [isNotiOpen, setIsNotiOpen] = useState(false);
   const [searchCar, setSearchCar] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [searchBooking, setSearchBooking] = useState('');
+  const [searchAdminBooking, setSearchAdminBooking] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [adminStatusFilter, setAdminStatusFilter] = useState<string>('all');
 
   // Booking Form State
   const [formData, setFormData] = useState({
@@ -292,6 +304,32 @@ export default function App() {
       return;
     }
 
+    // Prevent booking in the past
+    const todayStr = getTodayDateString();
+    if (startDate < todayStr) {
+      setAlertMsg({
+        type: 'error',
+        text: lang === 'th'
+          ? 'ไม่สามารถเลือกวันที่เริ่มใช้งานย้อนหลังได้'
+          : 'Cannot select a start date in the past.'
+      });
+      return;
+    }
+
+    if (startDate === todayStr) {
+      const now = new Date();
+      const currentHourMin = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      if (startTime < currentHourMin) {
+        setAlertMsg({
+          type: 'error',
+          text: lang === 'th'
+            ? 'เวลาเริ่มต้นที่เลือกผ่านไปแล้ว กรุณาเลือกเวลาปัจจุบันหรือในอนาคต'
+            : 'The selected start time has already passed. Please choose a current or future time.'
+        });
+        return;
+      }
+    }
+
     const selectedCar = vehicles.find(v => v.id === vehicleId);
     if (!selectedCar) return;
 
@@ -332,10 +370,22 @@ export default function App() {
 
     setBookings([newBooking, ...bookings]);
 
-    // Create system notification
-    const newNotification: NotificationItem = {
-      id: `noti-${Date.now()}`,
+    // Create separate notifications for the requesting user and the administrator
+    const userNotification: NotificationItem = {
+      id: `noti-u-${Date.now()}`,
       userId: user.id,
+      titleTh: `ยื่นคำขอจองคิวรถสำเร็จ`,
+      titleEn: `Booking Request Submitted`,
+      messageTh: `คุณได้ยื่นคำขอจองรถ ${selectedCar.plateNumber} เพื่อเดินทางไป "${destination}" เรียบร้อยแล้ว ขณะนี้อยู่ระหว่างรอผู้ดูแลระบบตรวจสอบ`,
+      messageEn: `Your booking request for ${selectedCar.plateNumber} to "${destination}" has been submitted and is pending administrator approval.`,
+      type: 'info',
+      read: false,
+      createdAt: new Date().toISOString()
+    };
+
+    const adminNotification: NotificationItem = {
+      id: `noti-a-${Date.now()}`,
+      userId: 'admin-1',
       titleTh: `คำขอจองคิวรถใหม่ (${selectedCar.plateNumber})`,
       titleEn: `New booking request (${selectedCar.plateNumber})`,
       messageTh: `${user.name} ได้ส่งยื่นข้อคำขอจองใช้รถ มุ่งหน้าสู่ "${destination}" วัตถุประสงค์เพื่อ "${purpose}"`,
@@ -344,7 +394,8 @@ export default function App() {
       read: false,
       createdAt: new Date().toISOString()
     };
-    setNotifications([newNotification, ...notifications]);
+
+    setNotifications([userNotification, adminNotification, ...notifications]);
 
     // Clear Form & Alert
     setFormData({
@@ -528,9 +579,7 @@ export default function App() {
     return matchesSearch && car.type === typeFilter;
   });
 
-  const userNotifications = role === 'admin'
-    ? notifications
-    : notifications.filter(n => n.userId === activeUserProfile().id || n.userId === undefined);
+  const userNotifications = notifications.filter(n => n.userId === activeUserProfile().id);
 
   const unreadNotificationCount = userNotifications.filter(n => !n.read).length;
 
@@ -951,103 +1000,174 @@ export default function App() {
                       <p className="text-xs text-slate-400 mt-1">{lang === 'th' ? 'ลองเดินทางร่วมกิจกรรมโดยกดปุ่ม จองรถใหม่ ด้านบน' : 'Build a journey catalog by clicking the Book a Vehicle button'}</p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 gap-5">
+                    <div className="space-y-4">
+                      {/* Search & Filter Bar */}
+                      <div className="flex flex-col sm:flex-row items-center gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                        <div className="relative flex-1 w-full">
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                          <input
+                            type="text"
+                            placeholder={lang === 'th' ? 'ค้นหาการจอง (จุดหมาย, วัตถุประสงค์, ทะเบียน, คนขับ)...' : 'Search booking (destination, purpose, plate, driver)...'}
+                            value={searchBooking}
+                            onChange={(e) => setSearchBooking(e.target.value)}
+                            className="pl-10 pr-4 py-2.5 bg-slate-50 text-xs font-semibold border border-slate-200 focus:outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100 rounded-lg w-full transition-all text-slate-700"
+                          />
+                        </div>
+                        <div className="w-full sm:w-auto flex gap-2">
+                          <select
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                            className="bg-slate-50 text-xs font-semibold border border-slate-200 rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100 cursor-pointer transition-all w-full text-slate-700"
+                          >
+                            <option value="all">📁 {lang === 'th' ? 'ทุกสถานะ' : 'All Statuses'}</option>
+                            <option value="pending">⏳ {lang === 'th' ? 'รออนุมัติ' : 'Pending'}</option>
+                            <option value="approved">✅ {lang === 'th' ? 'อนุมัติแล้ว' : 'Approved'}</option>
+                            <option value="rejected">❌ {lang === 'th' ? 'ปฏิเสธ' : 'Rejected'}</option>
+                            <option value="cancelled">🚫 {lang === 'th' ? 'ยกเลิกแล้ว' : 'Cancelled'}</option>
+                          </select>
+                        </div>
+                      </div>
+
                       {bookings
                         .filter(b => b.userId === activeUserProfile().id)
-                        .map(b => {
+                        .filter(b => {
+                          const query = searchBooking.toLowerCase();
                           const car = vehicles.find(v => v.id === b.vehicleId);
-                          return (
-                            <div 
-                              key={b.id} 
-                              className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col md:flex-row justify-between gap-6 hover:shadow-md transition-shadow relative overflow-hidden"
-                            >
-                              {/* Left part: description */}
-                              <div className="space-y-4 flex-1">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  {/* Status indicators */}
-                                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase border ${
-                                    b.status === 'pending' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                    b.status === 'approved' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                    b.status === 'rejected' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-slate-50 text-slate-600 border-slate-200'
-                                  }`}>
-                                    {t(b.status)}
-                                  </span>
-                                  <span className="text-[10px] font-mono text-slate-400 font-bold bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
-                                    ID: {b.id}
-                                  </span>
-                                </div>
+                          const carModel = car ? (lang === 'th' ? car.modelTh : car.modelEn).toLowerCase() : '';
+                          const carPlate = car ? car.plateNumber.toLowerCase() : '';
+                          const carDriver = car ? (lang === 'th' ? car.driverNameTh : car.driverNameEn).toLowerCase() : '';
+                          
+                          const matchesSearch = 
+                            b.destination.toLowerCase().includes(query) ||
+                            b.purpose.toLowerCase().includes(query) ||
+                            carModel.includes(query) ||
+                            carPlate.includes(query) ||
+                            carDriver.includes(query);
 
-                                <div className="space-y-1.5">
-                                  <h3 className="text-base font-bold text-slate-900 font-heading flex items-center gap-2">
-                                    <MapPin className="w-4.5 h-4.5 text-slate-400 flex-shrink-0" />
-                                    <span>{b.destination}</span>
-                                  </h3>
-                                  <p className="text-xs text-slate-600 font-sans">
-                                    <strong className="text-slate-700 font-semibold">{t('purpose')}:</strong> {b.purpose}
-                                  </p>
-                                </div>
+                          const matchesStatus = statusFilter === 'all' || b.status === statusFilter;
+                          return matchesSearch && matchesStatus;
+                        }).length === 0 ? (
+                          <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
+                            <Search className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                            <p className="text-sm font-semibold">{lang === 'th' ? 'ไม่พบข้อมูลการจองที่ตรงกับการค้นหา' : 'No bookings match your search filters.'}</p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 gap-5">
+                            {bookings
+                              .filter(b => b.userId === activeUserProfile().id)
+                              .filter(b => {
+                                const query = searchBooking.toLowerCase();
+                                const car = vehicles.find(v => v.id === b.vehicleId);
+                                const carModel = car ? (lang === 'th' ? car.modelTh : car.modelEn).toLowerCase() : '';
+                                const carPlate = car ? car.plateNumber.toLowerCase() : '';
+                                const carDriver = car ? (lang === 'th' ? car.driverNameTh : car.driverNameEn).toLowerCase() : '';
+                                
+                                const matchesSearch = 
+                                  b.destination.toLowerCase().includes(query) ||
+                                  b.purpose.toLowerCase().includes(query) ||
+                                  carModel.includes(query) ||
+                                  carPlate.includes(query) ||
+                                  carDriver.includes(query);
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs pt-3.5 border-t border-slate-100 text-slate-500 font-medium">
-                                  <div className="flex items-center gap-2">
-                                    <Calendar className="w-4 h-4 text-slate-400" />
-                                    <span>{b.startDate === b.endDate ? b.startDate : `${b.startDate} - ${b.endDate}`}</span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <Clock className="w-4 h-4 text-slate-400" />
-                                    <span>{b.startTime} - {b.endTime}</span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <Users className="w-4 h-4 text-slate-400" />
-                                    <span>{b.passengers} {t('seats')}</span>
-                                  </div>
-                                </div>
-
-                                {/* Vehicle associated detail */}
-                                {car && (
-                                  <div className="bg-slate-50 p-3 rounded-xl flex items-center justify-between text-xs text-slate-600 border border-slate-200">
-                                    <div className="flex items-center gap-2.5">
-                                      <div className="bg-white p-2 rounded-lg border border-slate-200 text-blue-600">
-                                        <Car className="w-4.5 h-4.5" />
-                                      </div>
-                                      <div>
-                                        <p className="font-bold text-slate-800 font-heading">{lang === 'th' ? car.modelTh : car.modelEn}</p>
-                                        <p className="text-[10px] font-mono text-slate-500 font-semibold">{car.plateNumber} • Capacity {car.capacity}</p>
-                                      </div>
-                                    </div>
-                                    <div className="text-right">
-                                      <p className="font-bold text-[11px] text-slate-700">{lang === 'th' ? car.driverNameTh : car.driverNameEn}</p>
-                                      <p className="text-[10px] text-slate-400 font-mono mt-0.5 flex items-center justify-end">
-                                        <Phone className="w-2.5 h-2.5 mr-0.5" />
-                                        {car.driverPhone}
-                                      </p>
-                                    </div>
-                                  </div>
-                                )}
-
-                                {/* Admin Rejection Reason notes projection */}
-                                {b.notes && b.status === 'rejected' && (
-                                  <div className="bg-rose-50 border border-rose-100 rounded-xl p-3 text-xs text-rose-800">
-                                    <strong>{lang === 'th' ? 'เหตุผลที่ปฏิเสธ:' : 'Reason for rejection:'}</strong> {b.notes}
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Right part: action */}
-                              <div className="flex items-start md:items-end justify-end">
-                                {b.status === 'pending' && (
-                                  <button
-                                    onClick={() => handleUpdateBookingStatus(b.id, 'cancelled')}
-                                    className="px-3 py-1.5 border border-slate-200 text-slate-500 hover:text-rose-650 hover:bg-rose-50 hover:border-rose-200 rounded-lg text-[11px] font-bold transition-all flex items-center space-x-1 cursor-pointer"
+                                const matchesStatus = statusFilter === 'all' || b.status === statusFilter;
+                                return matchesSearch && matchesStatus;
+                              })
+                              .map(b => {
+                                const car = vehicles.find(v => v.id === b.vehicleId);
+                                return (
+                                  <div 
+                                    key={b.id} 
+                                    className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col md:flex-row justify-between gap-6 hover:shadow-md transition-shadow relative overflow-hidden"
                                   >
-                                    <X className="w-3.5 h-3.5" />
-                                    <span>{t('cancel')}</span>
-                                  </button>
-                                )}
-                              </div>
+                                    {/* Left part: description */}
+                                    <div className="space-y-4 flex-1">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        {/* Status indicators */}
+                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase border ${
+                                          b.status === 'pending' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                          b.status === 'approved' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                          b.status === 'rejected' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-slate-50 text-slate-600 border-slate-200'
+                                        }`}>
+                                          {t(b.status)}
+                                        </span>
+                                        <span className="text-[10px] font-mono text-slate-400 font-bold bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
+                                          ID: {b.id}
+                                        </span>
+                                      </div>
 
-                            </div>
-                          );
-                        })}
+                                      <div className="space-y-1.5">
+                                        <h3 className="text-base font-bold text-slate-900 font-heading flex items-center gap-2">
+                                          <MapPin className="w-4.5 h-4.5 text-slate-400 flex-shrink-0" />
+                                          <span>{b.destination}</span>
+                                        </h3>
+                                        <p className="text-xs text-slate-600 font-sans">
+                                          <strong className="text-slate-700 font-semibold">{t('purpose')}:</strong> {b.purpose}
+                                        </p>
+                                      </div>
+
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs pt-3.5 border-t border-slate-100 text-slate-500 font-medium">
+                                        <div className="flex items-center gap-2">
+                                          <Calendar className="w-4 h-4 text-slate-400" />
+                                          <span>{b.startDate === b.endDate ? b.startDate : `${b.startDate} - ${b.endDate}`}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <Clock className="w-4 h-4 text-slate-400" />
+                                          <span>{b.startTime} - {b.endTime}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <Users className="w-4 h-4 text-slate-400" />
+                                          <span>{b.passengers} {t('seats')}</span>
+                                        </div>
+                                      </div>
+
+                                      {/* Vehicle associated detail */}
+                                      {car && (
+                                        <div className="bg-slate-50 p-3 rounded-xl flex items-center justify-between text-xs text-slate-600 border border-slate-200">
+                                          <div className="flex items-center gap-2.5">
+                                            <div className="bg-white p-2 rounded-lg border border-slate-200 text-blue-600">
+                                              <Car className="w-4.5 h-4.5" />
+                                            </div>
+                                            <div>
+                                              <p className="font-bold text-slate-800 font-heading">{lang === 'th' ? car.modelTh : car.modelEn}</p>
+                                              <p className="text-[10px] font-mono text-slate-500 font-semibold">{car.plateNumber} • Capacity {car.capacity}</p>
+                                            </div>
+                                          </div>
+                                          <div className="text-right">
+                                            <p className="font-bold text-[11px] text-slate-700">{lang === 'th' ? car.driverNameTh : car.driverNameEn}</p>
+                                            <p className="text-[10px] text-slate-400 font-mono mt-0.5 flex items-center justify-end">
+                                              <Phone className="w-2.5 h-2.5 mr-0.5" />
+                                              {car.driverPhone}
+                                            </p>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Admin Rejection Reason notes projection */}
+                                      {b.notes && b.status === 'rejected' && (
+                                        <div className="bg-rose-50 border border-rose-100 rounded-xl p-3 text-xs text-rose-800">
+                                          <strong>{lang === 'th' ? 'เหตุผลที่ปฏิเสธ:' : 'Reason for rejection:'}</strong> {b.notes}
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* Right part: action */}
+                                    <div className="flex items-start md:items-end justify-end">
+                                      {b.status === 'pending' && (
+                                        <button
+                                          onClick={() => handleUpdateBookingStatus(b.id, 'cancelled')}
+                                          className="px-3 py-1.5 border border-slate-200 text-slate-500 hover:text-rose-650 hover:bg-rose-50 hover:border-rose-200 rounded-lg text-[11px] font-bold transition-all flex items-center space-x-1 cursor-pointer"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                          <span>{t('cancel')}</span>
+                                        </button>
+                                      )}
+                                    </div>
+
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        )}
                     </div>
                   )}
                 </div>
@@ -1075,6 +1195,7 @@ export default function App() {
                         <input
                           type="date"
                           required
+                          min={getTodayDateString()}
                           value={formData.startDate}
                           onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
                           className="w-full text-xs font-semibold border border-slate-200 focus:border-blue-600 focus:ring-4 focus:ring-blue-100 rounded-lg p-2.5 bg-slate-50 transition-all outline-none"
@@ -1085,6 +1206,7 @@ export default function App() {
                         <input
                           type="date"
                           required
+                          min={formData.startDate || getTodayDateString()}
                           value={formData.endDate}
                           onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
                           className="w-full text-xs font-semibold border border-slate-200 focus:border-blue-600 focus:ring-4 focus:ring-blue-100 rounded-lg p-2.5 bg-slate-50 transition-all outline-none"
@@ -1346,23 +1468,71 @@ export default function App() {
                       {t('noData')}
                     </div>
                   ) : (
-                    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs text-slate-600">
-                          <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[9px] tracking-widest border-b border-slate-200">
-                            <tr>
-                              <th className="px-5 py-4">{t('name')}</th>
-                              <th className="px-5 py-4">{lang === 'th' ? 'ยานพาหนะ' : 'Vehicle Target'}</th>
-                              <th className="px-5 py-4">{lang === 'th' ? 'กำหนดการ' : 'Schedule Window'}</th>
-                              <th className="px-5 py-4">{lang === 'th' ? 'ความจุ/จุดเดินทาง' : 'Trip Destination'}</th>
-                              <th className="px-5 py-4 text-center">สถานะ</th>
-                              <th className="px-5 py-4 text-center">{t('action')}</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {bookings.map(b => {
-                              const car = vehicles.find(v => v.id === b.vehicleId);
-                              return (
+                    <div className="space-y-4">
+                      {/* Search & Filter Controls for Admin */}
+                      <div className="flex flex-col sm:flex-row items-center gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                        <div className="relative flex-1 w-full">
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                          <input
+                            type="text"
+                            placeholder={lang === 'th' ? 'ค้นหารายการจอง (ชื่อผู้จอง, จุดหมาย, วัตถุประสงค์, ทะเบียนรถ, คนขับ)...' : 'Search bookings (requester, destination, purpose, plate, driver)...'}
+                            value={searchAdminBooking}
+                            onChange={(e) => setSearchAdminBooking(e.target.value)}
+                            className="pl-10 pr-4 py-2.5 bg-slate-50 text-xs font-semibold border border-slate-200 focus:outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100 rounded-lg w-full transition-all text-slate-700"
+                          />
+                        </div>
+                        <div className="w-full sm:w-auto flex gap-2">
+                          <select
+                            value={adminStatusFilter}
+                            onChange={(e) => setAdminStatusFilter(e.target.value)}
+                            className="bg-slate-50 text-xs font-semibold border border-slate-200 rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100 cursor-pointer transition-all w-full text-slate-700"
+                          >
+                            <option value="all">📁 {lang === 'th' ? 'ทุกสถานะ' : 'All Statuses'}</option>
+                            <option value="pending">⏳ {lang === 'th' ? 'รออนุมัติ' : 'Pending'}</option>
+                            <option value="approved">✅ {lang === 'th' ? 'อนุมัติแล้ว' : 'Approved'}</option>
+                            <option value="rejected">❌ {lang === 'th' ? 'ปฏิเสธ' : 'Rejected'}</option>
+                            <option value="cancelled">🚫 {lang === 'th' ? 'ยกเลิกแล้ว' : 'Cancelled'}</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs text-slate-600">
+                            <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[9px] tracking-widest border-b border-slate-200">
+                              <tr>
+                                <th className="px-5 py-4">{t('name')}</th>
+                                <th className="px-5 py-4">{lang === 'th' ? 'ยานพาหนะ' : 'Vehicle Target'}</th>
+                                <th className="px-5 py-4">{lang === 'th' ? 'กำหนดการ' : 'Schedule Window'}</th>
+                                <th className="px-5 py-4">{lang === 'th' ? 'ความจุ/จุดเดินทาง' : 'Trip Destination'}</th>
+                                <th className="px-5 py-4 text-center">สถานะ</th>
+                                <th className="px-5 py-4 text-center">{t('action')}</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {bookings
+                                .filter(b => {
+                                  const query = searchAdminBooking.toLowerCase();
+                                  const car = vehicles.find(v => v.id === b.vehicleId);
+                                  const carModel = car ? (lang === 'th' ? car.modelTh : car.modelEn).toLowerCase() : '';
+                                  const carPlate = car ? car.plateNumber.toLowerCase() : '';
+                                  const carDriver = car ? (lang === 'th' ? car.driverNameTh : car.driverNameEn).toLowerCase() : '';
+                                  
+                                  const matchesSearch = 
+                                    b.userName.toLowerCase().includes(query) ||
+                                    b.destination.toLowerCase().includes(query) ||
+                                    b.purpose.toLowerCase().includes(query) ||
+                                    carModel.includes(query) ||
+                                    carPlate.includes(query) ||
+                                    carDriver.includes(query) ||
+                                    b.userRole.toLowerCase().includes(query);
+
+                                  const matchesStatus = adminStatusFilter === 'all' || b.status === adminStatusFilter;
+                                  return matchesSearch && matchesStatus;
+                                })
+                                .map(b => {
+                                  const car = vehicles.find(v => v.id === b.vehicleId);
+                                  return (
                                 <tr key={b.id} className="hover:bg-slate-50/40 transition-colors">
                                   {/* Operator profile */}
                                   <td className="px-5 py-4">
@@ -1460,6 +1630,7 @@ export default function App() {
                           </tbody>
                         </table>
                       </div>
+                    </div>
                     </div>
                   )}
                 </div>

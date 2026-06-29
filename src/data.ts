@@ -161,6 +161,7 @@ export const initialBookings: Booking[] = [
 export const initialNotifications: NotificationItem[] = [
   {
     id: 'noti-1',
+    userId: 'student-1',
     titleTh: 'อนุมัติการจองพาหนะเรียบร้อย',
     titleEn: 'Vehicle Booking Approved',
     messageTh: 'การอนุมัติรถ Toyota Majesty ทะเบียน ฮย 5566 สำหรับการเดินทางไป อ.หาดใหญ่ จ.สงขลา สมบูรณ์แล้ว',
@@ -171,6 +172,7 @@ export const initialNotifications: NotificationItem[] = [
   },
   {
     id: 'noti-2',
+    userId: 'admin-1',
     titleTh: 'ได้รับคำขอจองคิวใหม่',
     titleEn: 'New Pending Booking Request',
     messageTh: 'ดร.สุดาพร พงษ์สิทธิ์ ได้ส่งคำขอจอง รถโค้ชบัส Scania ทะเบียน 30-1234 ขอนำนักศึกษาฝึกประสบการณ์สังเกตการณ์ช่วยสอน',
@@ -181,6 +183,7 @@ export const initialNotifications: NotificationItem[] = [
   },
   {
     id: 'noti-3',
+    userId: 'admin-1',
     titleTh: 'สถานะการส่งพิกัดระบบ',
     titleEn: 'Applet Running Smoothly',
     messageTh: 'ระบบจองรถทักษิณย่านเพชรเกษมและพัทลุงเปิดทำการเชื่อมโยงข้อมูลแบบเรียลไทม์เรียบร้อย',
