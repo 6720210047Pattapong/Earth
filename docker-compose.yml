@@ -1,0 +1,7 @@
+services:
+  app:
+    build: .
+    container_name: g08_app
+    ports:
+      - "3008:3008"
+    restart: unless-stopped
