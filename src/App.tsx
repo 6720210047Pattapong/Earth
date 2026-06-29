@@ -1,35 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Car, 
-  Calendar, 
-  Clock, 
-  User, 
-  Users, 
-  MapPin, 
-  FileText, 
-  CheckCircle, 
-  AlertTriangle, 
-  X, 
-  Check, 
-  Trash2, 
-  Edit3, 
-  Plus, 
-  Search, 
-  Languages, 
-  Bell, 
-  Phone, 
-  ShieldAlert, 
-  Layers, 
-  TrendingUp, 
-  CheckSquare, 
-  ChevronRight,
-  Info
-} from 'lucide-react';
+import { Car, Calendar, Clock, User, Users, MapPin, FileText, CheckCircle, AlertTriangle, X, Check, Trash2, Edit3, Plus, Search, Languages, Bell, Phone, ShieldAlert, Layers, TrendingUp, CheckSquare, ChevronRight, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Vehicle, Booking, NotificationItem, UserRole, VehicleType, UserProfile } from './types';
 import { translations } from './translations';
 import { initialVehicles, initialBookings, initialNotifications } from './data';
 import AuthScreen from './components/AuthScreen';
+import { db } from './lib/firebase';
+import { doc, getDocFromServer } from 'firebase/firestore';
+
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if(error instanceof Error && error.message.includes('the client is offline')) {
+      console.error("Please check your Firebase configuration.");
+    }
+  }
+}
+testConnection();
 
 // Demo profiles for user role switching simulation
 const PROFILE_STUDENT = {
@@ -106,6 +94,13 @@ export default function App() {
 
   const [currentTab, setCurrentTab] = useState<string>(() => {
     return role === 'admin' ? 'admin-bookings' : 'bookings';
+  });
+
+  const [dbStatus, setDbStatus] = useState<{ connected: boolean; type: string; error: string | null; config?: any }>({
+    connected: false,
+    type: 'fallback',
+    error: null,
+    config: { host: '', port: '3306', user: '', database: '' }
   });
 
   const [vehicles, setVehicles] = useState<Vehicle[]>(() => {
@@ -208,6 +203,59 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('booking_sys_notifications', JSON.stringify(notifications));
   }, [notifications]);
+
+  // Sync data from Express API on startup
+  useEffect(() => {
+    // 1. Fetch DB Status
+    fetch('/api/db-status')
+      .then(res => res.json())
+      .then(data => {
+        if (data && typeof data.connected === 'boolean') {
+          setDbStatus(data);
+        }
+      })
+      .catch(err => console.error('Error loading DB status:', err));
+
+    // 2. Fetch Users
+    fetch('/api/users')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setUsers(data);
+        }
+      })
+      .catch(err => console.error('Error loading users:', err));
+
+    // 3. Fetch Vehicles
+    fetch('/api/vehicles')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setVehicles(data);
+        }
+      })
+      .catch(err => console.error('Error loading vehicles:', err));
+
+    // 4. Fetch Bookings
+    fetch('/api/bookings')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setBookings(data);
+        }
+      })
+      .catch(err => console.error('Error loading bookings:', err));
+
+    // 5. Fetch Notifications
+    fetch('/api/notifications')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setNotifications(data);
+        }
+      })
+      .catch(err => console.error('Error loading notifications:', err));
+  }, []);
 
   // Adjust default tab when role changes
   const handleRoleChange = (newRole: UserRole) => {
@@ -370,6 +418,13 @@ export default function App() {
 
     setBookings([newBooking, ...bookings]);
 
+    // Save booking on MySQL/fallback server
+    fetch('/api/bookings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newBooking)
+    }).catch(err => console.error('Error saving booking:', err));
+
     // Create separate notifications for the requesting user and the administrator
     const userNotification: NotificationItem = {
       id: `noti-u-${Date.now()}`,
@@ -396,6 +451,19 @@ export default function App() {
     };
 
     setNotifications([userNotification, adminNotification, ...notifications]);
+
+    // Save notifications on MySQL/fallback server
+    fetch('/api/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(userNotification)
+    }).catch(err => console.error('Error saving user notification:', err));
+
+    fetch('/api/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(adminNotification)
+    }).catch(err => console.error('Error saving admin notification:', err));
 
     // Clear Form & Alert
     setFormData({
@@ -429,6 +497,13 @@ export default function App() {
       return b;
     }));
 
+    // Update on MySQL/fallback server
+    fetch(`/api/bookings/${bookingId}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: nextStatus, notes: rejectNotes })
+    }).catch(err => console.error('Error updating booking status on server:', err));
+
     // Trigger Notification for the owner
     const thTitle = nextStatus === 'approved' ? 'อนุมัติการจองพาหนะแล้ว' : nextStatus === 'rejected' ? 'ปฏิเสธคำขอจองคิวรถ' : 'คำขอจองรถยกเลิกแล้ว';
     const enTitle = nextStatus === 'approved' ? 'Booking Request Approved' : nextStatus === 'rejected' ? 'Booking Request Rejected' : 'Booking Cancelled';
@@ -453,13 +528,26 @@ export default function App() {
     };
     setNotifications([newNotification, ...notifications]);
 
+    // Save notification on server
+    fetch('/api/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newNotification)
+    }).catch(err => console.error('Error saving notification on server:', err));
+
     // Update Fleet Vehicle Busy Status temporarily if approved for currently active date range
     if (nextStatus === 'approved') {
       const today = new Date().toISOString().split('T')[0];
       if (bookingToUpdate.startDate <= today && bookingToUpdate.endDate >= today) {
         setVehicles(prevVehicles => prevVehicles.map(car => {
           if (car.id === bookingToUpdate.vehicleId) {
-            return { ...car, status: 'busy' };
+            const updated = { ...car, status: 'busy' as const };
+            fetch('/api/vehicles', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(updated)
+            }).catch(err => console.error('Error syncing vehicle status:', err));
+            return updated;
           }
           return car;
         }));
@@ -468,7 +556,13 @@ export default function App() {
       // Revert busy state if needed
       setVehicles(prevVehicles => prevVehicles.map(car => {
         if (car.id === bookingToUpdate.vehicleId && car.status === 'busy') {
-          return { ...car, status: 'available' };
+          const updated = { ...car, status: 'available' as const };
+          fetch('/api/vehicles', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updated)
+          }).catch(err => console.error('Error syncing vehicle status:', err));
+          return updated;
         }
         return car;
       }));
@@ -502,15 +596,21 @@ export default function App() {
 
     if (editingCarId) {
       // Edit mode
+      const updatedCar = {
+        id: editingCarId,
+        modelTh, modelEn, plateNumber, type, capacity: Number(capacity), status, driverNameTh, driverNameEn, driverPhone, fuelTypeTh, fuelTypeEn
+      };
       setVehicles(prev => prev.map(car => {
         if (car.id === editingCarId) {
-          return {
-            ...car,
-            modelTh, modelEn, plateNumber, type, capacity: Number(capacity), status, driverNameTh, driverNameEn, driverPhone, fuelTypeTh, fuelTypeEn
-          };
+          return updatedCar;
         }
         return car;
       }));
+      fetch('/api/vehicles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedCar)
+      }).catch(err => console.error('Error updating vehicle:', err));
       setEditingCarId(null);
       setAlertMsg({ type: 'success', text: lang === 'th' ? 'อัปเดตข้อมูลรถกองกลางสำเร็จ' : 'Vehicle info updated successfully.' });
     } else {
@@ -520,6 +620,11 @@ export default function App() {
         modelTh, modelEn, plateNumber, type, capacity: Number(capacity), status, driverNameTh, driverNameEn, driverPhone, fuelTypeTh, fuelTypeEn
       };
       setVehicles([newCar, ...vehicles]);
+      fetch('/api/vehicles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newCar)
+      }).catch(err => console.error('Error adding vehicle:', err));
       setAlertMsg({ type: 'success', text: lang === 'th' ? 'เพิ่มยานพาหนะใหม่เข้าสู่ระบบเรียบร้อย' : 'New fleet vehicle registered successfully.' });
     }
 
@@ -552,6 +657,9 @@ export default function App() {
   const handleDeleteCar = (carId: string) => {
     if (confirm(t('deleteConfirm'))) {
       setVehicles(prev => prev.filter(c => c.id !== carId));
+      fetch(`/api/vehicles/${carId}`, {
+        method: 'DELETE'
+      }).catch(err => console.error('Error deleting vehicle:', err));
       setAlertMsg({ type: 'success', text: lang === 'th' ? 'ลบยานพาหนะที่เลือกสำเร็จ' : 'Vehicle deleted successfully.' });
     }
   };
@@ -559,10 +667,19 @@ export default function App() {
   // Mark all notifications as read or clear
   const handleMarkAllRead = () => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    notifications.filter(n => !n.read).forEach(n => {
+      fetch(`/api/notifications/${n.id}/read`, { method: 'PUT' }).catch(err => console.error('Error marking read:', err));
+    });
   };
 
   const handleClearAllNotifications = () => {
     setNotifications([]);
+    const user = activeUserProfile();
+    fetch('/api/notifications/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: user.id })
+    }).catch(err => console.error('Error clearing notifications:', err));
   };
 
   // Helper lists & search logic
@@ -712,9 +829,18 @@ export default function App() {
               <Car className="w-5.5 h-5.5 text-white animate-pulse" />
             </div>
             <div>
-              <h1 className="font-bold text-lg leading-none text-slate-900 font-heading tracking-tight flex items-center gap-2">
-                <span>{t('appTitle')}</span>
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="font-bold text-lg leading-none text-slate-900 font-heading tracking-tight flex items-center gap-2">
+                  <span>{t('appTitle')}</span>
+                </h1>
+                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold ${
+                  dbStatus.connected 
+                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                    : 'bg-amber-50 text-amber-700 border border-amber-200'
+                }`}>
+                  {dbStatus.connected ? 'MySQL' : 'Local'}
+                </span>
+              </div>
               <span className="text-[10px] text-slate-500 uppercase tracking-wider font-bold block mt-0.5">{t('appSubtitle')}</span>
             </div>
           </div>
@@ -950,13 +1076,52 @@ export default function App() {
               <span className="font-heading">{t('tabReports')}</span>
             </button>
 
-            {/* Simulated Live status panel */}
-            <div className="p-4 bg-slate-50 rounded-xl mt-4 border border-slate-200 text-[11px] text-slate-500 leading-relaxed text-left space-y-1.5">
-              <div className="flex items-center space-x-1.5 text-slate-800 font-bold">
-                <Layers className="w-3.5 h-3.5 text-blue-600" />
-                <span>{lang === 'th' ? 'สภาพแวดล้อม' : 'State Engine'}</span>
+            {/* MySQL Database status panel */}
+            <div className="p-4 bg-slate-50 rounded-xl mt-4 border border-slate-200 text-[11px] text-slate-500 leading-relaxed text-left space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-1.5 text-slate-800 font-bold">
+                  <Layers className="w-3.5 h-3.5 text-blue-600" />
+                  <span>{lang === 'th' ? 'ฐานข้อมูล MySQL' : 'MySQL Database'}</span>
+                </div>
+                <span className={`w-2.5 h-2.5 rounded-full ${dbStatus.connected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
               </div>
-              <p className="text-[11px] text-slate-550">{lang === 'th' ? '• เชื่อมฐานข้อมูลจำลองด้วย LocalStorage การกระทำใดๆ จะสลักลงหน้าจอทันที' : '• Backed by local storage simulated state. Full client reactivity.'}</p>
+              
+              {dbStatus.connected ? (
+                <div className="space-y-1">
+                  <p className="text-emerald-700 font-bold flex items-center gap-1">
+                    <span>●</span> {lang === 'th' ? 'เชื่อมต่อ MySQL สำเร็จ' : 'MySQL Connected'}
+                  </p>
+                  <p className="text-[10px] text-slate-500 leading-normal">
+                    <strong>Host:</strong> {dbStatus.config?.host} <br />
+                    <strong>Database:</strong> {dbStatus.config?.database}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-amber-700 font-bold flex items-center gap-1">
+                    <span>●</span> {lang === 'th' ? 'ระบบสำรอง InMemory Active' : 'Fallback Storage Active'}
+                  </p>
+                  <p className="text-[10px] leading-tight text-slate-500">
+                    {lang === 'th'
+                      ? 'ยังไม่ได้ต่อ MySQL จริง กรุณากรอก Environment Variables ในแถบการตั้งค่าของ AI Studio (Secrets) เพื่อเชื่อมต่อฐานข้อมูลถาวร'
+                      : 'MySQL is not connected. Please add environment variables in the Secrets panel in AI Studio to enable database persistence.'}
+                  </p>
+                  
+                  {/* Quick Setup Guide */}
+                  <div className="pt-1.5 border-t border-slate-200 mt-1.5">
+                    <p className="font-bold text-[10px] text-slate-700 uppercase mb-1">
+                      {lang === 'th' ? 'ตัวแปรระบบที่ต้องการ (.env):' : 'Required Environment Variables:'}
+                    </p>
+                    <div className="bg-slate-100 p-2 rounded font-mono text-[9px] text-slate-650 space-y-1 select-all leading-normal">
+                      <div>MYSQL_HOST=your_host</div>
+                      <div>MYSQL_PORT=3306</div>
+                      <div>MYSQL_USER=your_user</div>
+                      <div>MYSQL_PASSWORD=your_pass</div>
+                      <div>MYSQL_DATABASE=your_db_name</div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
           </nav>
